@@ -1,0 +1,37 @@
+version: '3.8'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laravel-app
+    container_name: laravel-app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=php
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=omsdemo
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+    container_name: laravel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: php
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: omsdemo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
