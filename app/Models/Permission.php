@@ -15,18 +15,12 @@ class Permission extends Model
         'description',
     ];
 
-    /**
-     * Permission belongs to a tenant.
-     */
-    public function tenant()
+        public function tenant()
     {
         return $this->belongsTo(Tenant::class);
     }
 
-    /**
-     * Roles that include this permission.
-     */
-    public function roles()
+        public function roles()
     {
         return $this->belongsToMany(Role::class);
     }

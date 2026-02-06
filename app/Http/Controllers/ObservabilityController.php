@@ -9,20 +9,14 @@ use Illuminate\Support\Facades\DB;
 
 class ObservabilityController extends Controller
 {
-    /**
-     * Basic health check.
-     */
-    public function health()
+        public function health()
     {
         return response()->json([
             'status' => 'ok',
         ]);
     }
 
-    /**
-     * Service status with basic diagnostics.
-     */
-    public function status()
+        public function status()
     {
         $dbStatus = 'unknown';
 
@@ -40,10 +34,7 @@ class ObservabilityController extends Controller
         ]);
     }
 
-    /**
-     * Global metrics.
-     */
-    public function metrics()
+        public function metrics()
     {
         return response()->json([
             'tenants' => [
@@ -59,10 +50,7 @@ class ObservabilityController extends Controller
         ]);
     }
 
-    /**
-     * Tenant-specific metrics.
-     */
-    public function tenantMetrics(Request $request, int $tenantId)
+        public function tenantMetrics(Request $request, int $tenantId)
     {
         $user = $request->user();
 

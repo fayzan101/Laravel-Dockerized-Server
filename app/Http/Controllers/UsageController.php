@@ -8,10 +8,7 @@ use Illuminate\Support\Carbon;
 
 class UsageController extends Controller
 {
-    /**
-     * Get usage summary for the current tenant.
-     */
-    public function index(Request $request)
+        public function index(Request $request)
     {
         $actor = $request->user();
 
@@ -48,10 +45,7 @@ class UsageController extends Controller
         ]);
     }
 
-    /**
-     * Report usage for the current tenant.
-     */
-    public function report(Request $request)
+        public function report(Request $request)
     {
         $actor = $request->user();
 

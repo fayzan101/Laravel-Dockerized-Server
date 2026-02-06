@@ -8,18 +8,12 @@ use Illuminate\Http\Request;
 
 class FeatureController extends Controller
 {
-    /**
-     * List all features.
-     */
-    public function index()
+        public function index()
     {
         return response()->json(Feature::all());
     }
 
-    /**
-     * List effective features for a tenant.
-     */
-    public function tenantFeatures(Request $request, int $tenantId)
+        public function tenantFeatures(Request $request, int $tenantId)
     {
         $actor = $request->user();
 
@@ -49,10 +43,7 @@ class FeatureController extends Controller
         return response()->json($result);
     }
 
-    /**
-     * Override a feature for a tenant.
-     */
-    public function override(Request $request, int $tenantId)
+        public function override(Request $request, int $tenantId)
     {
         $actor = $request->user();
 
