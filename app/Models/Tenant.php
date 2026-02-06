@@ -26,34 +26,22 @@ class Tenant extends Model
         'activated_at' => 'datetime',
     ];
 
-    /**
-     * Get the owner of the tenant.
-     */
-    public function owner()
+        public function owner()
     {
         return $this->belongsTo(User::class, 'owner_id');
     }
 
-    /**
-     * Get all users in this tenant.
-     */
-    public function users()
+        public function users()
     {
         return $this->hasMany(User::class);
     }
 
-    /**
-     * Check if tenant is active.
-     */
-    public function isActive(): bool
+        public function isActive(): bool
     {
         return $this->status === 'active';
     }
 
-    /**
-     * Activate the tenant.
-     */
-    public function activate()
+        public function activate()
     {
         $this->update([
             'status' => 'active',
@@ -61,10 +49,7 @@ class Tenant extends Model
         ]);
     }
 
-    /**
-     * Deactivate the tenant.
-     */
-    public function deactivate()
+        public function deactivate()
     {
         $this->update(['status' => 'inactive']);
     }

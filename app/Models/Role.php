@@ -15,26 +15,17 @@ class Role extends Model
         'description',
     ];
 
-    /**
-     * Role belongs to a tenant.
-     */
-    public function tenant()
+        public function tenant()
     {
         return $this->belongsTo(Tenant::class);
     }
 
-    /**
-     * Users assigned to this role.
-     */
-    public function users()
+        public function users()
     {
         return $this->belongsToMany(User::class);
     }
 
-    /**
-     * Permissions attached to this role.
-     */
-    public function permissions()
+        public function permissions()
     {
         return $this->belongsToMany(Permission::class);
     }

@@ -10,10 +10,7 @@ use Illuminate\Support\Str;
 
 class TenantController extends Controller
 {
-    /**
-     * Get current tenant details.
-     */
-    public function current(Request $request)
+        public function current(Request $request)
     {
         $user = $request->user();
 
@@ -24,10 +21,7 @@ class TenantController extends Controller
         return response()->json($user->tenant);
     }
 
-    /**
-     * Create a new tenant (called during user registration).
-     */
-    public function create(Request $request)
+        public function create(Request $request)
     {
         $request->validate([
             'name' => 'required|string|max:255',
@@ -46,18 +40,13 @@ class TenantController extends Controller
         ], 201);
     }
 
-    /**
-     * Update tenant information.
-     */
-    public function update(Request $request)
+        public function update(Request $request)
     {
         $user = $request->user();
 
         if (!$user || !$user->tenant_id) {
             return response()->json(['message' => 'User is not associated with a tenant'], 400);
         }
-
-        // Only admin can update tenant
         if ($user->role !== 'admin') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
@@ -79,10 +68,7 @@ class TenantController extends Controller
         ]);
     }
 
-    /**
-     * Invite user to tenant.
-     */
-    public function inviteUser(Request $request)
+        public function inviteUser(Request $request)
     {
         $owner = $request->user();
 
@@ -98,8 +84,6 @@ class TenantController extends Controller
             'email' => 'required|email',
             'role' => 'required|in:admin,member',
         ]);
-
-        // Check if user already exists in this tenant
         $user = User::where('email', $request->email)
             ->where('tenant_id', $owner->tenant_id)
             ->first();
@@ -107,8 +91,6 @@ class TenantController extends Controller
         if ($user) {
             return response()->json(['message' => 'User is already in this tenant'], 409);
         }
-
-        // For now, we'll create a placeholder user. In production, you'd send an invitation email
         $newUser = User::create([
             'name' => explode('@', $request->email)[0],
             'email' => $request->email,
@@ -123,10 +105,7 @@ class TenantController extends Controller
         ], 201);
     }
 
-    /**
-     * Get all users in tenant.
-     */
-    public function getUsers(Request $request)
+        public function getUsers(Request $request)
     {
         $user = $request->user();
 
@@ -139,10 +118,7 @@ class TenantController extends Controller
         return response()->json($users);
     }
 
-    /**
-     * Create a user within a tenant.
-     */
-    public function createTenantUser(Request $request, int $tenantId)
+        public function createTenantUser(Request $request, int $tenantId)
     {
         $actor = $request->user();
 
@@ -171,10 +147,7 @@ class TenantController extends Controller
         ], 201);
     }
 
-    /**
-     * List users within a tenant.
-     */
-    public function listTenantUsers(Request $request, int $tenantId)
+        public function listTenantUsers(Request $request, int $tenantId)
     {
         $actor = $request->user();
 
@@ -187,10 +160,7 @@ class TenantController extends Controller
         return response()->json($users);
     }
 
-    /**
-     * Update a user within the actor's tenant.
-     */
-    public function updateUser(Request $request, int $userId)
+        public function updateUser(Request $request, int $userId)
     {
         $actor = $request->user();
 
@@ -229,10 +199,7 @@ class TenantController extends Controller
         ]);
     }
 
-    /**
-     * Delete a user within the actor's tenant.
-     */
-    public function deleteUser(Request $request, int $userId)
+        public function deleteUser(Request $request, int $userId)
     {
         $actor = $request->user();
 
@@ -259,10 +226,7 @@ class TenantController extends Controller
         return response()->json(['message' => 'User deleted successfully']);
     }
 
-    /**
-     * Remove user from tenant.
-     */
-    public function removeUser(Request $request)
+        public function removeUser(Request $request)
     {
         $owner = $request->user();
 

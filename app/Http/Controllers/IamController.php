@@ -9,10 +9,7 @@ use Illuminate\Http\Request;
 
 class IamController extends Controller
 {
-    /**
-     * Create a role in the current tenant.
-     */
-    public function createRole(Request $request)
+        public function createRole(Request $request)
     {
         $actor = $request->user();
 
@@ -37,10 +34,7 @@ class IamController extends Controller
         ], 201);
     }
 
-    /**
-     * List roles in the current tenant.
-     */
-    public function listRoles(Request $request)
+        public function listRoles(Request $request)
     {
         $actor = $request->user();
 
@@ -53,10 +47,7 @@ class IamController extends Controller
         return response()->json($roles);
     }
 
-    /**
-     * Create a permission in the current tenant.
-     */
-    public function createPermission(Request $request)
+        public function createPermission(Request $request)
     {
         $actor = $request->user();
 
@@ -81,10 +72,7 @@ class IamController extends Controller
         ], 201);
     }
 
-    /**
-     * Get a user's permissions (via roles) within the tenant.
-     */
-    public function getUserPermissions(Request $request, int $userId)
+        public function getUserPermissions(Request $request, int $userId)
     {
         $actor = $request->user();
 
