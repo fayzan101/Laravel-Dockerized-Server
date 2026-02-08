@@ -15,7 +15,6 @@ return new class extends Migration
             $table->string('description')->nullable();
             $table->timestamps();
             $table->unique(['tenant_id', 'name']);
-            $table->unique(['tenant_id', 'name']);
         });
     }
 
