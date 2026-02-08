@@ -24,8 +24,7 @@ class TenantService
 
         public static function isAdmin(): bool
     {
-        /** @var User|null $user */
-        $user = Auth::user();
+                $user = Auth::user();
         return $user && $user->isAdmin();
     }
 
