@@ -84,9 +84,42 @@ sudo systemctl reload caddy
 
 **5. Scheduler** — included as the `scheduler` service (`php artisan schedule:work`). No host cron required for `schedule:run`.
 
-**Redeploy:** `git pull && docker compose -f docker-compose.prod.yml up -d --build && docker compose -f docker-compose.prod.yml exec app php artisan migrate --force`
+**Redeploy (manual):** `./scripts/deploy.sh` or `git pull && docker compose -f docker-compose.prod.yml up -d --build`
 
 The API listens on `127.0.0.1:8000` only; Caddy handles public HTTPS. `EXPORTS_DISK=local` is fine on a single VPS.
+
+## CI/CD
+
+**CI** — `.github/workflows/ci.yml` runs tests on push/PR (PHP 8.4 + PostgreSQL).
+
+**CD** — `.github/workflows/deploy.yml` deploys to Hetzner after CI passes on `main`/`master` (or run manually from the Actions tab).
+
+### One-time server setup for auto-deploy
+
+```bash
+cd /root/Faizan/MultiTenantSaas
+git remote -v   # must point at your GitHub repo
+```
+
+Add a **deploy SSH key** on the server (`~/.ssh/authorized_keys`) and configure GitHub repo **Settings → Secrets → Actions**:
+
+| Secret | Example |
+|--------|---------|
+| `DEPLOY_HOST` | `91.98.69.207` |
+| `DEPLOY_USER` | `root` |
+| `DEPLOY_SSH_KEY` | private key (full PEM) |
+| `DEPLOY_PATH` | `/root/Faizan/MultiTenantSaas` |
+| `DEPLOY_BRANCH` | `main` (optional) |
+
+Generate a key pair for GitHub Actions only:
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f deploy_key -N ""
+# Add deploy_key.pub to server authorized_keys
+# Paste deploy_key contents into DEPLOY_SSH_KEY secret
+```
+
+Ensure the server can `git fetch` from GitHub (deploy key or HTTPS token on the server remote).
 
 ## Seed accounts
 

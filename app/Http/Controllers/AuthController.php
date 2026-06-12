@@ -68,6 +68,20 @@ class AuthController extends Controller
             ]);
         }
 
+        if ($user->isSuperAdmin()) {
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            $this->auditLogger->audit('login', $user);
+
+            return response()->json([
+                'message' => 'Login successful',
+                'access_token' => $token,
+                'token_type' => 'Bearer',
+                'user' => $user,
+                'tenant' => null,
+            ]);
+        }
+
         if (! $user->tenant_id) {
             return response()->json(['message' => 'User is not associated with any tenant'], 400);
         }
