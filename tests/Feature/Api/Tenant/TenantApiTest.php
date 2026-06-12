@@ -68,4 +68,29 @@ class TenantApiTest extends TestCase
             'name' => 'Hacked',
         ])->assertForbidden();
     }
+
+    public function test_owner_can_transfer_ownership(): void
+    {
+        ['tenant' => $tenant, 'admin' => $admin] = $this->createTenantWithAdmin();
+        $member = $this->createMember($tenant);
+
+        $this->actingAsApi($admin)->postJson('/api/tenant/transfer-ownership', [
+            'user_id' => $member->id,
+        ])->assertOk()->assertJsonPath('owner.id', $member->id);
+
+        $this->assertDatabaseHas('tenants', [
+            'id' => $tenant->id,
+            'owner_id' => $member->id,
+        ]);
+    }
+
+    public function test_owner_can_soft_delete_tenant(): void
+    {
+        ['tenant' => $tenant, 'admin' => $admin] = $this->createTenantWithAdmin();
+
+        $this->actingAsApi($admin)->deleteJson('/api/tenant')
+            ->assertOk();
+
+        $this->assertSoftDeleted('tenants', ['id' => $tenant->id]);
+    }
 }

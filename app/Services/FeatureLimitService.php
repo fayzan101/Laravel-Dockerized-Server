@@ -80,4 +80,42 @@ class FeatureLimitService
             abort(422, "Feature limit exceeded for {$featureKey}.");
         }
     }
+
+    public function isEnabledForTenant(int $tenantId, string $featureKey): bool
+    {
+        $feature = Feature::where('key', $featureKey)->first();
+
+        if (! $feature) {
+            return true;
+        }
+
+        $override = TenantFeatureOverride::where('tenant_id', $tenantId)
+            ->where('feature_key', $featureKey)
+            ->first();
+
+        if ($override && $override->enabled !== null) {
+            return (bool) $override->enabled;
+        }
+
+        return (bool) $feature->default_enabled;
+    }
+
+    public function limitForTenant(int $tenantId, string $featureKey): ?int
+    {
+        $feature = Feature::where('key', $featureKey)->first();
+
+        if (! $feature) {
+            return null;
+        }
+
+        $override = TenantFeatureOverride::where('tenant_id', $tenantId)
+            ->where('feature_key', $featureKey)
+            ->first();
+
+        if ($override && $override->limit !== null) {
+            return $override->limit;
+        }
+
+        return $feature->default_limit;
+    }
 }

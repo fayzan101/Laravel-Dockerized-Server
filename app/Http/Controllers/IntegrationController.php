@@ -7,13 +7,16 @@ use App\Http\Requests\Integration\UpdateIntegrationRequest;
 use App\Models\Integration;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Services\PlatformLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
 class IntegrationController extends Controller
 {
-    public function __construct(private AuditLogger $auditLogger)
-    {
+    public function __construct(
+        private AuditLogger $auditLogger,
+        private PlatformLimitService $limits
+    ) {
     }
 
     public function index(Request $request)
@@ -29,6 +32,8 @@ class IntegrationController extends Controller
     {
         $tenant = Tenant::findOrFail($tenantId);
         $this->authorize('manageIntegrations', $tenant);
+
+        $this->limits->assertCanAddIntegration($tenantId);
 
         $integration = $tenant->integrations()->create($request->validated());
 

@@ -12,13 +12,36 @@ services:
       - ./:/var/www
     ports:
       - "8000:8000"
-    environment:
-      - DB_CONNECTION=pgsql
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_DATABASE=saas-backend
-      - DB_USERNAME=postgres
-      - DB_PASSWORD=omsdemo
+    depends_on:
+      - db
+    environment: &app-env
+      APP_ENV: local
+      APP_DEBUG: "true"
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: saas-backend
+      DB_USERNAME: postgres
+      DB_PASSWORD: omsdemo
+      QUEUE_CONNECTION: database
+      EXPORTS_DISK: local
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laravel-app
+    container_name: laravel-queue
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+    depends_on:
+      - db
+      - app
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+    environment: *app-env
+
   db:
     image: postgres:15
     container_name: laravel-db
@@ -31,5 +54,6 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
 volumes:
   pgdata:

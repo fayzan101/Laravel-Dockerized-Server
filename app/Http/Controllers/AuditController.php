@@ -10,8 +10,8 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\AuditRetentionService;
 use App\Services\ComplianceReportService;
+use App\Services\ExportStorageService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AuditController extends Controller
@@ -19,7 +19,8 @@ class AuditController extends Controller
     public function __construct(
         private AuditLogger $auditLogger,
         private AuditRetentionService $retention,
-        private ComplianceReportService $complianceReport
+        private ComplianceReportService $complianceReport,
+        private ExportStorageService $exports
     ) {
     }
 
@@ -109,11 +110,15 @@ class AuditController extends Controller
         ];
 
         $path = 'gdpr/exports/user-' . $user->id . '-' . now()->timestamp . '.json';
-        Storage::disk('local')->put($path, json_encode($exportData, JSON_PRETTY_PRINT));
+        $this->exports->put($path, json_encode($exportData, JSON_PRETTY_PRINT));
 
         $gdprRequest->update([
             'status' => 'completed',
-            'result' => ['path' => $path, 'filename' => basename($path)],
+            'result' => [
+                'path' => $path,
+                'filename' => basename($path),
+                'disk' => $this->exports->disk(),
+            ],
         ]);
 
         $this->auditLogger->audit('gdpr.export', $user);
@@ -136,12 +141,16 @@ class AuditController extends Controller
             ->findOrFail($requestId);
 
         $path = $gdprRequest->result['path'] ?? null;
+        $disk = $gdprRequest->result['disk'] ?? $this->exports->disk();
 
-        if (! $path || ! Storage::disk('local')->exists($path)) {
+        if (! $path || ! \Illuminate\Support\Facades\Storage::disk($disk)->exists($path)) {
             abort(404, 'Export file not found');
         }
 
-        return Storage::disk('local')->download($path, $gdprRequest->result['filename'] ?? 'gdpr-export.json');
+        return \Illuminate\Support\Facades\Storage::disk($disk)->download(
+            $path,
+            $gdprRequest->result['filename'] ?? 'gdpr-export.json'
+        );
     }
 
     public function gdprDelete(Request $request)

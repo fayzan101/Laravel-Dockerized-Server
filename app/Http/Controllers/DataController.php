@@ -10,6 +10,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\DataMigrationService;
+use App\Services\PlatformLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -21,7 +22,8 @@ class DataController extends Controller
 {
     public function __construct(
         private AuditLogger $auditLogger,
-        private DataMigrationService $migrationService
+        private DataMigrationService $migrationService,
+        private PlatformLimitService $limits
     ) {
     }
 
@@ -57,9 +59,18 @@ class DataController extends Controller
 
         $user = $request->user();
         $imported = 0;
+        $usersToImport = $request->input('data.users', []);
 
-        DB::transaction(function () use ($request, $user, &$imported) {
-            foreach ($request->input('data.users', []) as $userData) {
+        $newUsers = collect($usersToImport)->filter(function (array $userData) use ($user) {
+            return ! User::where('email', $userData['email'])
+                ->where('tenant_id', $user->tenant_id)
+                ->exists();
+        })->count();
+
+        $this->limits->assertCanAddUser($user->tenant_id, $newUsers);
+
+        DB::transaction(function () use ($request, $user, &$imported, $usersToImport) {
+            foreach ($usersToImport as $userData) {
                 User::updateOrCreate(
                     [
                         'email' => $userData['email'],

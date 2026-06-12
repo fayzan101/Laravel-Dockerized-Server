@@ -7,10 +7,15 @@ use App\Models\Integration;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class DataMigrationService
 {
+    public function __construct(
+        private ExportStorageService $exports,
+        private PlatformLimitService $limits
+    ) {
+    }
+
     public function queue(User $user, string $type = 'internal', ?int $sourceTenantId = null, ?int $targetTenantId = null): DataMigration
     {
         $migration = DataMigration::create([
@@ -79,13 +84,14 @@ class DataMigrationService
         $steps[] = $this->runStep('snapshot_users', function () use ($tenantId) {
             $tenant = Tenant::with('users')->findOrFail($tenantId);
             $path = 'migrations/tenant-' . $tenant->id . '-' . now()->timestamp . '.json';
-            Storage::disk('local')->put($path, json_encode([
+            $this->exports->put($path, json_encode([
                 'tenant' => $tenant->only(['id', 'name', 'slug']),
                 'users_count' => $tenant->users->count(),
                 'exported_at' => now()->toIso8601String(),
+                'disk' => $this->exports->disk(),
             ], JSON_PRETTY_PRINT));
 
-            return ['snapshot_path' => $path, 'users_count' => $tenant->users->count()];
+            return ['snapshot_path' => $path, 'disk' => $this->exports->disk(), 'users_count' => $tenant->users->count()];
         });
 
         $steps[] = $this->runStep('verify_integrations', function () use ($tenantId) {
@@ -114,18 +120,28 @@ class DataMigrationService
         $steps[] = $this->runStep('export_source_schema', function () use ($sourceId) {
             $tenant = Tenant::with(['users', 'integrations'])->findOrFail($sourceId);
             $path = 'migrations/cross-' . $sourceId . '-to-' . $tenant->id . '-' . now()->timestamp . '.json';
-            Storage::disk('local')->put($path, json_encode([
+            $this->exports->put($path, json_encode([
                 'tenant' => $tenant->only(['id', 'name', 'slug', 'settings']),
                 'users' => $tenant->users->map->only(['name', 'email', 'role']),
                 'integrations' => $tenant->integrations->map->only(['name', 'type', 'config', 'is_active']),
+                'disk' => $this->exports->disk(),
             ], JSON_PRETTY_PRINT));
 
-            return ['snapshot_path' => $path, 'users' => $tenant->users->count()];
+            return ['snapshot_path' => $path, 'disk' => $this->exports->disk(), 'users' => $tenant->users->count()];
         });
 
         $steps[] = $this->runStep('import_to_target', function () use ($sourceId, $targetId) {
             $source = Tenant::with('integrations')->findOrFail($sourceId);
             $importedIntegrations = 0;
+
+            $newIntegrations = $source->integrations->filter(function ($integration) use ($targetId) {
+                return ! Integration::withoutGlobalScopes()
+                    ->where('tenant_id', $targetId)
+                    ->where('name', $integration->name)
+                    ->exists();
+            });
+
+            $this->limits->assertCanAddIntegration($targetId, $newIntegrations->count());
 
             foreach ($source->integrations as $integration) {
                 Integration::withoutGlobalScopes()->updateOrCreate(

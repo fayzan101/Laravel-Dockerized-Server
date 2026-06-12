@@ -21,7 +21,11 @@ API documentation: [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:80
 docker-compose up --build
 ```
 
-App runs at [http://localhost:8000](http://localhost:8000). PostgreSQL data persists in the `pgdata` volume.
+- **app** — API at [http://localhost:8000](http://localhost:8000)
+- **queue** — `php artisan queue:work` for async data migrations
+- **db** — PostgreSQL 15 (`pgdata` volume)
+
+Set `EXPORTS_DISK=s3` and AWS credentials in `.env` for cloud export storage in production.
 
 ## Seed accounts
 
@@ -77,6 +81,7 @@ Key variables in `.env`:
 ```
 DB_CONNECTION=pgsql
 QUEUE_CONNECTION=database
+EXPORTS_DISK=local
 AUDIT_RETENTION_DAYS=90
 ```
 
