@@ -1,16 +1,18 @@
 <?php
 
 namespace App\Models;
-use Laravel\Sanctum\HasApiTokens;
+
+use App\Enums\UserRole;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-        use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
-        protected $fillable = [
+    protected $fillable = [
         'name',
         'email',
         'password',
@@ -18,12 +20,12 @@ class User extends Authenticatable
         'role',
     ];
 
-        protected $hidden = [
+    protected $hidden = [
         'password',
         'remember_token',
     ];
 
-        protected function casts(): array
+    protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
@@ -31,23 +33,28 @@ class User extends Authenticatable
         ];
     }
 
-        public function tenant()
+    public function tenant()
     {
         return $this->belongsTo(Tenant::class);
     }
 
-        public function roles()
+    public function roles()
     {
         return $this->belongsToMany(Role::class);
     }
 
-        public function isAdmin(): bool
+    public function isSuperAdmin(): bool
     {
-        return $this->role === 'admin';
+        return $this->role === UserRole::SuperAdmin->value;
     }
 
-        public function isMember(): bool
+    public function isAdmin(): bool
     {
-        return $this->role === 'member';
+        return $this->role === UserRole::Admin->value;
+    }
+
+    public function isMember(): bool
+    {
+        return $this->role === UserRole::Member->value;
     }
 }

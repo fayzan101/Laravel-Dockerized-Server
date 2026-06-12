@@ -2,65 +2,46 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Tenant\CreateTenantUserRequest;
+use App\Http\Requests\Tenant\InviteUserRequest;
+use App\Http\Requests\Tenant\RemoveUserRequest;
+use App\Http\Requests\Tenant\TransferOwnershipRequest;
+use App\Http\Requests\Tenant\UpdateTenantRequest;
+use App\Http\Requests\Tenant\UpdateUserRequest;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class TenantController extends Controller
 {
-        public function current(Request $request)
+    public function __construct(private AuditLogger $auditLogger)
+    {
+    }
+
+    public function current(Request $request)
     {
         $user = $request->user();
 
-        if (!$user || !$user->tenant_id) {
+        if (! $user->tenant_id) {
             return response()->json(['message' => 'User is not associated with a tenant'], 400);
         }
 
         return response()->json($user->tenant);
     }
 
-        public function create(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'slug' => 'required|string|max:255|unique:tenants',
-        ]);
-
-        $tenant = Tenant::create([
-            'name' => $request->name,
-            'slug' => Str::slug($request->slug),
-            'description' => $request->description ?? null,
-        ]);
-
-        return response()->json([
-            'message' => 'Tenant created successfully',
-            'tenant' => $tenant,
-        ], 201);
-    }
-
-        public function update(Request $request)
+    public function update(UpdateTenantRequest $request)
     {
         $user = $request->user();
-
-        if (!$user || !$user->tenant_id) {
-            return response()->json(['message' => 'User is not associated with a tenant'], 400);
-        }
-        if ($user->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
         $tenant = $user->tenant;
 
-        $request->validate([
-            'name' => 'string|max:255',
-            'slug' => 'string|max:255|unique:tenants,slug,' . $tenant->id,
-            'description' => 'nullable|string',
-            'settings' => 'nullable|json',
-        ]);
+        $this->authorize('update', $tenant);
 
         $tenant->update($request->only(['name', 'slug', 'description', 'settings']));
+
+        $this->auditLogger->activity('tenant.updated', $user, $tenant);
 
         return response()->json([
             'message' => 'Tenant updated successfully',
@@ -68,36 +49,30 @@ class TenantController extends Controller
         ]);
     }
 
-        public function inviteUser(Request $request)
+    public function inviteUser(InviteUserRequest $request)
     {
         $owner = $request->user();
+        $tenant = $owner->tenant;
 
-        if (!$owner || !$owner->tenant_id) {
-            return response()->json(['message' => 'User is not associated with a tenant'], 400);
-        }
+        $this->authorize('inviteUsers', $tenant);
 
-        if ($owner->role !== 'admin') {
-            return response()->json(['message' => 'Only admins can invite users'], 403);
-        }
-
-        $request->validate([
-            'email' => 'required|email',
-            'role' => 'required|in:admin,member',
-        ]);
-        $user = User::where('email', $request->email)
+        $exists = User::where('email', $request->email)
             ->where('tenant_id', $owner->tenant_id)
-            ->first();
+            ->exists();
 
-        if ($user) {
+        if ($exists) {
             return response()->json(['message' => 'User is already in this tenant'], 409);
         }
+
         $newUser = User::create([
             'name' => explode('@', $request->email)[0],
             'email' => $request->email,
-            'password' => \Illuminate\Support\Facades\Hash::make(Str::random(32)),
+            'password' => Hash::make(Str::random(32)),
             'tenant_id' => $owner->tenant_id,
             'role' => $request->role,
         ]);
+
+        $this->auditLogger->activity('user.invited', $owner, $newUser);
 
         return response()->json([
             'message' => 'User invited successfully',
@@ -105,33 +80,25 @@ class TenantController extends Controller
         ], 201);
     }
 
-        public function getUsers(Request $request)
+    public function getUsers(Request $request)
     {
         $user = $request->user();
 
-        if (!$user || !$user->tenant_id) {
+        if (! $user->tenant_id) {
             return response()->json(['message' => 'User is not associated with a tenant'], 400);
         }
 
-        $users = User::where('tenant_id', $user->tenant_id)->get();
-
-        return response()->json($users);
+        return response()->json(
+            User::where('tenant_id', $user->tenant_id)
+                ->latest()
+                ->paginate($this->perPage($request))
+        );
     }
 
-        public function createTenantUser(Request $request, int $tenantId)
+    public function createTenantUser(CreateTenantUserRequest $request, int $tenantId)
     {
-        $actor = $request->user();
-
-        if (!$actor || $actor->tenant_id !== $tenantId || $actor->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users,email,NULL,id,tenant_id,' . $tenantId,
-            'role' => 'required|in:admin,member',
-            'password' => 'required|string|min:8|confirmed',
-        ]);
+        $tenant = Tenant::findOrFail($tenantId);
+        $this->authorize('manageUsers', $tenant);
 
         $newUser = User::create([
             'name' => $request->name,
@@ -141,49 +108,30 @@ class TenantController extends Controller
             'role' => $request->role,
         ]);
 
+        $this->auditLogger->activity('user.created', $request->user(), $newUser);
+
         return response()->json([
             'message' => 'User created successfully',
             'user' => $newUser,
         ], 201);
     }
 
-        public function listTenantUsers(Request $request, int $tenantId)
+    public function listTenantUsers(Request $request, int $tenantId)
     {
-        $actor = $request->user();
+        $tenant = Tenant::findOrFail($tenantId);
+        $this->authorize('manageUsers', $tenant);
 
-        if (!$actor || $actor->tenant_id !== $tenantId || $actor->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $users = User::where('tenant_id', $tenantId)->get();
-
-        return response()->json($users);
+        return response()->json(
+            User::where('tenant_id', $tenantId)
+                ->latest()
+                ->paginate($this->perPage($request))
+        );
     }
 
-        public function updateUser(Request $request, int $userId)
+    public function updateUser(UpdateUserRequest $request, int $userId)
     {
-        $actor = $request->user();
-
-        if (!$actor || $actor->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $target = User::find($userId);
-
-        if (!$target) {
-            return response()->json(['message' => 'User not found'], 404);
-        }
-
-        if ($target->tenant_id !== $actor->tenant_id) {
-            return response()->json(['message' => 'User is not in this tenant'], 403);
-        }
-
-        $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|max:255|unique:users,email,' . $userId . ',id,tenant_id,' . $actor->tenant_id,
-            'role' => 'sometimes|in:admin,member',
-            'password' => 'sometimes|string|min:8|confirmed',
-        ]);
+        $target = User::findOrFail($userId);
+        $this->authorize('update', $target);
 
         $data = $request->only(['name', 'email', 'role']);
 
@@ -193,67 +141,74 @@ class TenantController extends Controller
 
         $target->update($data);
 
+        $this->auditLogger->activity('user.updated', $request->user(), $target);
+
         return response()->json([
             'message' => 'User updated successfully',
             'user' => $target,
         ]);
     }
 
-        public function deleteUser(Request $request, int $userId)
+    public function deleteUser(Request $request, int $userId)
     {
-        $actor = $request->user();
-
-        if (!$actor || $actor->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $target = User::find($userId);
-
-        if (!$target) {
-            return response()->json(['message' => 'User not found'], 404);
-        }
-
-        if ($target->tenant_id !== $actor->tenant_id) {
-            return response()->json(['message' => 'User is not in this tenant'], 403);
-        }
-
-        if ($target->id === $actor->id) {
-            return response()->json(['message' => 'Cannot delete yourself'], 400);
-        }
+        $target = User::findOrFail($userId);
+        $this->authorize('delete', $target);
 
         $target->delete();
+
+        $this->auditLogger->activity('user.deleted', $request->user(), $target);
 
         return response()->json(['message' => 'User deleted successfully']);
     }
 
-        public function removeUser(Request $request)
+    public function removeUser(RemoveUserRequest $request)
     {
         $owner = $request->user();
+        $userToRemove = User::findOrFail($request->user_id);
 
-        if (!$owner || !$owner->tenant_id) {
-            return response()->json(['message' => 'User is not associated with a tenant'], 400);
-        }
-
-        if ($owner->role !== 'admin') {
-            return response()->json(['message' => 'Only admins can remove users'], 403);
-        }
-
-        $request->validate([
-            'user_id' => 'required|exists:users,id',
-        ]);
-
-        $userToRemove = User::find($request->user_id);
-
-        if ($userToRemove->tenant_id !== $owner->tenant_id) {
-            return response()->json(['message' => 'User is not in this tenant'], 400);
-        }
-
-        if ($userToRemove->id === $owner->id) {
-            return response()->json(['message' => 'Cannot remove yourself'], 400);
-        }
+        $this->authorize('removeFromTenant', $userToRemove);
 
         $userToRemove->delete();
 
+        $this->auditLogger->activity('user.removed', $owner, $userToRemove);
+
         return response()->json(['message' => 'User removed successfully']);
+    }
+
+    public function transferOwnership(TransferOwnershipRequest $request)
+    {
+        $owner = $request->user();
+        $tenant = $owner->tenant;
+
+        $this->authorize('transferOwnership', $tenant);
+
+        $newOwner = User::where('tenant_id', $tenant->id)
+            ->findOrFail($request->user_id);
+
+        $tenant->update(['owner_id' => $newOwner->id]);
+
+        $this->auditLogger->activity('tenant.ownership_transferred', $owner, $tenant, [
+            'new_owner_id' => $newOwner->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Ownership transferred',
+            'tenant' => $tenant->fresh(),
+            'owner' => $newOwner,
+        ]);
+    }
+
+    public function destroy(Request $request)
+    {
+        $user = $request->user();
+        $tenant = $user->tenant;
+
+        $this->authorize('delete', $tenant);
+
+        $this->auditLogger->audit('tenant.deleted', $user, $tenant->id, Tenant::class, $tenant->id);
+
+        $tenant->delete();
+
+        return response()->json(['message' => 'Tenant soft-deleted']);
     }
 }

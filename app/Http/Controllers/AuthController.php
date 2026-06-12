@@ -2,26 +2,28 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
+use App\Enums\UserRole;
+use App\Http\Requests\Auth\LoginRequest;
+use App\Http\Requests\Auth\RegisterRequest;
+use App\Http\Requests\Auth\ResetPasswordRequest;
 use App\Models\Tenant;
+use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
+    public function __construct(private AuditLogger $auditLogger)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255',
-            'password' => 'required|string|min:8|confirmed',
-            'tenant_name' => 'required|string|max:255',
-            'tenant_slug' => 'required|string|max:255|unique:tenants,slug',
-        ]);
+    }
+
+    public function register(RegisterRequest $request)
+    {
         if (User::where('email', $request->email)->exists()) {
             return response()->json(['message' => 'Email already registered'], 409);
         }
@@ -38,12 +40,14 @@ class AuthController extends Controller
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'tenant_id' => $tenant->id,
-            'role' => 'admin',
+            'role' => UserRole::Admin->value,
         ]);
 
         $tenant->update(['owner_id' => $user->id]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
+
+        $this->auditLogger->audit('register', $user, $tenant->id, Tenant::class, $tenant->id);
 
         return response()->json([
             'message' => 'Account and tenant created successfully',
@@ -54,32 +58,24 @@ class AuthController extends Controller
         ], 201);
     }
 
-    
-    public function login(Request $request)
+    public function login(LoginRequest $request)
     {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
-            'tenant_slug' => 'nullable|string',
-        ]);
-
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
-       
-        if (!$user->tenant_id) {
+        if (! $user->tenant_id) {
             return response()->json(['message' => 'User is not associated with any tenant'], 400);
         }
 
-       
-        if (!$user->tenant->isActive()) {
+        if (! $user->tenant->isActive()) {
             return response()->json(['message' => 'Tenant is inactive or suspended'], 403);
         }
+
         if ($request->tenant_slug && $user->tenant->slug !== $request->tenant_slug) {
             throw ValidationException::withMessages([
                 'tenant_slug' => ['User does not belong to this tenant.'],
@@ -87,6 +83,8 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
+
+        $this->auditLogger->audit('login', $user);
 
         return response()->json([
             'message' => 'Login successful',
@@ -96,13 +94,12 @@ class AuthController extends Controller
             'tenant' => $user->tenant,
         ]);
     }
+
     public function forgotPassword(Request $request)
     {
         $request->validate(['email' => 'required|email']);
 
-        $status = Password::sendResetLink(
-            $request->only('email')
-        );
+        $status = Password::sendResetLink($request->only('email'));
 
         if ($status === Password::RESET_LINK_SENT) {
             return response()->json(['message' => 'Password reset link sent.']);
@@ -110,14 +107,9 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'Unable to send reset link.'], 400);
     }
-    public function resetPassword(Request $request)
-    {
-        $request->validate([
-            'token' => 'required',
-            'email' => 'required|email',
-            'password' => 'required|string|min:8|confirmed',
-        ]);
 
+    public function resetPassword(ResetPasswordRequest $request)
+    {
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),
             function ($user, $password) {
@@ -134,21 +126,24 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'Unable to reset password.'], 400);
     }
+
     public function logout(Request $request)
     {
         $user = $request->user();
 
         if ($user && $user->currentAccessToken()) {
+            $this->auditLogger->audit('logout', $user);
             $user->currentAccessToken()->delete();
         }
 
         return response()->json(['message' => 'Logged out successfully']);
     }
+
     public function refresh(Request $request)
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
@@ -165,21 +160,20 @@ class AuthController extends Controller
         ]);
     }
 
-        public function sso(Request $request)
+    public function sso(Request $request)
     {
         $header = $request->header('Authorization');
-        if (!$header || !str_starts_with($header, 'Bearer ')) {
-            return response()->json([
-                'message' => 'Missing or invalid Authorization header.'
-            ], 401);
+        if (! $header || ! str_starts_with($header, 'Bearer ')) {
+            return response()->json(['message' => 'Missing or invalid Authorization header.'], 401);
         }
+
         $token = substr($header, 7);
-        $user = \Laravel\Sanctum\PersonalAccessToken::findToken($token)?->tokenable;
-        if (!$user) {
-            return response()->json([
-                'message' => 'Invalid or expired token.'
-            ], 401);
+        $user = PersonalAccessToken::findToken($token)?->tokenable;
+
+        if (! $user) {
+            return response()->json(['message' => 'Invalid or expired token.'], 401);
         }
+
         return response()->json([
             'message' => 'SSO login successful',
             'access_token' => $token,

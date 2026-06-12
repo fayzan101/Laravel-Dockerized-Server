@@ -16,7 +16,7 @@ class FeatureApiTest extends TestCase
 
         $this->actingAsApi($admin)->getJson('/api/features')
             ->assertOk()
-            ->assertJsonFragment(['key' => 'projects']);
+            ->assertJsonPath('data.0.key', 'projects');
     }
 
     public function test_tenant_user_can_view_tenant_features(): void
@@ -26,7 +26,7 @@ class FeatureApiTest extends TestCase
 
         $this->actingAsApi($admin)->getJson('/api/tenants/' . $tenant->id . '/features')
             ->assertOk()
-            ->assertJsonFragment(['key' => 'api_calls']);
+            ->assertJsonPath('data.0.key', 'api_calls');
     }
 
     public function test_admin_can_override_tenant_feature(): void

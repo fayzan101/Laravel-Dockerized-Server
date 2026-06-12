@@ -9,21 +9,19 @@ use Illuminate\Support\Facades\DB;
 
 class ObservabilityController extends Controller
 {
-        public function health()
+    public function health()
     {
-        return response()->json([
-            'status' => 'ok',
-        ]);
+        return response()->json(['status' => 'ok']);
     }
 
-        public function status()
+    public function status()
     {
         $dbStatus = 'unknown';
 
         try {
             DB::connection()->getPdo();
             $dbStatus = 'ok';
-        } catch (\Throwable $exception) {
+        } catch (\Throwable) {
             $dbStatus = 'error';
         }
 
@@ -34,7 +32,7 @@ class ObservabilityController extends Controller
         ]);
     }
 
-        public function metrics()
+    public function metrics()
     {
         return response()->json([
             'tenants' => [
@@ -50,19 +48,10 @@ class ObservabilityController extends Controller
         ]);
     }
 
-        public function tenantMetrics(Request $request, int $tenantId)
+    public function tenantMetrics(Request $request, int $tenantId)
     {
-        $user = $request->user();
-
-        if (!$user || $user->tenant_id !== $tenantId || $user->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $tenant = Tenant::find($tenantId);
-
-        if (!$tenant) {
-            return response()->json(['message' => 'Tenant not found'], 404);
-        }
+        $tenant = Tenant::findOrFail($tenantId);
+        $this->authorize('viewMetrics', $tenant);
 
         return response()->json([
             'tenant' => [

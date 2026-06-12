@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Permission extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected $fillable = [
         'tenant_id',
@@ -15,12 +16,12 @@ class Permission extends Model
         'description',
     ];
 
-        public function tenant()
+    public function tenant()
     {
         return $this->belongsTo(Tenant::class);
     }
 
-        public function roles()
+    public function roles()
     {
         return $this->belongsToMany(Role::class);
     }

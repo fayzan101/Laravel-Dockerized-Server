@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class UsageRecord extends Model
 {
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected $fillable = [
         'tenant_id',
@@ -22,9 +23,4 @@ class UsageRecord extends Model
         'metadata' => 'array',
         'recorded_at' => 'datetime',
     ];
-
-    public function tenant()
-    {
-        return $this->belongsTo(Tenant::class);
-    }
 }
