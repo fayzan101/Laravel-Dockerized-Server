@@ -91,10 +91,12 @@ class DataController extends Controller
 
         RunDataMigrationJob::dispatch($migration->id);
 
+        $migration = $migration->fresh();
+
         return response()->json([
-            'message' => 'Migration queued',
+            'message' => $migration->status === 'completed' ? 'Migration completed' : 'Migration queued',
             'migration' => $migration,
-        ], 202);
+        ], $migration->status === 'pending' ? 202 : 200);
     }
 
     public function migrationStatus(Request $request, int $migrationId)

@@ -1,24 +1,56 @@
 *.log
 .DS_Store
+Thumbs.db
+
+# Environment & secrets
 .env
+.env.*
+!.env.example
 .env.backup
 .env.production
-.phpactor.json
+.env.local
+.env.testing
+
+# PHPUnit (local overrides may contain DB credentials)
+/phpunit.xml
+phpunit.xml.bak
 .phpunit.result.cache
+/.phpunit.cache
+
+# Composer
+/auth.json
+/vendor
+
+# IDE
 /.fleet
 /.idea
 /.nova
-/.phpunit.cache
 /.vscode
 /.zed
-/auth.json
+.phpactor.json
+
+# Laravel / storage
 /node_modules
 /public/build
 /public/hot
 /public/storage
 /storage/*.key
 /storage/pail
-/vendor
+/storage/app/gdpr/
+/storage/app/migrations/
+/storage/app/audit/
+
+# Credentials & keys
+credentials.json
+*.pem
+*.p12
+*.key
+id_rsa
+id_rsa.pub
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Homestead
 Homestead.json
 Homestead.yaml
-Thumbs.db
