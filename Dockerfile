@@ -1,22 +1,33 @@
 FROM php:8.4-cli
 
-# Install system dependencies
+ARG COMPOSER_DEV=true
+
 RUN apt-get update \
-    && apt-get install -y libpq-dev git unzip \
-    && docker-php-ext-install pdo pdo_pgsql
+    && apt-get install -y libpq-dev git unzip curl \
+    && docker-php-ext-install pdo pdo_pgsql \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Composer
-COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Set working directory
 WORKDIR /var/www
 
-# Copy existing application directory contents
-COPY . /var/www
+COPY composer.json composer.lock ./
 
-# Install PHP dependencies
-RUN composer install --no-interaction --prefer-dist --optimize-autoloader
+RUN if [ "$COMPOSER_DEV" = "false" ]; then \
+        composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts; \
+    else \
+        composer install --no-interaction --prefer-dist --optimize-autoloader --no-scripts; \
+    fi
 
-# Expose port 8000 and start Laravel server
+COPY . .
+
+RUN composer dump-autoload --optimize \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R ug+rwx storage bootstrap/cache
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

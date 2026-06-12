@@ -17,15 +17,76 @@ API documentation: [http://127.0.0.1:8000/api/documentation](http://127.0.0.1:80
 
 ## Docker
 
+### Local development (bundled PostgreSQL)
+
 ```bash
-docker-compose up --build
+cp .env.example .env
+php artisan key:generate   # or generate after first container start
+docker compose up --build
+docker compose exec app php artisan migrate
+docker compose exec app php artisan db:seed
 ```
 
 - **app** — API at [http://localhost:8000](http://localhost:8000)
 - **queue** — `php artisan queue:work` for async data migrations
-- **db** — PostgreSQL 15 (`pgdata` volume)
+- **db** — PostgreSQL 15 (`pgdata` volume); overrides `DB_HOST` from `.env` to use the local container
 
-Set `EXPORTS_DISK=s3` and AWS credentials in `.env` for cloud export storage in production.
+### Production (Neon + Hetzner VPS)
+
+Stack: **Neon** (PostgreSQL) + **Hetzner Cloud** (API + queue) + **Caddy** (HTTPS).
+
+**1. Hetzner server** — Ubuntu 24.04, e.g. CX22 (2 vCPU / 4 GB). Add your SSH key. In **Firewalls**, allow inbound `22` (your IP), `80`, `443`.
+
+**2. On the server**
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+# log out and back in
+
+mkdir -p ~/faizan
+cd ~/faizan
+git clone https://github.com/YOUR_USER/YOUR_REPO.git .
+cp .env.production.example .env
+nano .env   # Neon credentials, APP_URL=http://YOUR_HETZNER_IP:8000
+```
+
+Or from your PC: `scp .env.production root@YOUR_IP:~/faizan/.env`
+
+**3. Start containers**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml exec app php artisan key:generate
+docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
+docker compose -f docker-compose.prod.yml exec app php artisan db:seed --force
+docker compose -f docker-compose.prod.yml exec app php artisan config:cache
+curl http://127.0.0.1:8000/api/health
+```
+
+**4. HTTPS (Caddy on host)** — point DNS `A` record to the server IP, then:
+
+```bash
+sudo apt install -y caddy
+```
+
+`/etc/caddy/Caddyfile`:
+
+```caddy
+api.yourdomain.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+```bash
+sudo systemctl reload caddy
+```
+
+**5. Scheduler** — included as the `scheduler` service (`php artisan schedule:work`). No host cron required for `schedule:run`.
+
+**Redeploy:** `git pull && docker compose -f docker-compose.prod.yml up -d --build && docker compose -f docker-compose.prod.yml exec app php artisan migrate --force`
+
+The API listens on `127.0.0.1:8000` only; Caddy handles public HTTPS. `EXPORTS_DISK=local` is fine on a single VPS.
 
 ## Seed accounts
 

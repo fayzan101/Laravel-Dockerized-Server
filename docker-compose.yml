@@ -1,19 +1,21 @@
-  # version attribute removed as it is obsolete
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        COMPOSER_DEV: "true"
     image: laravel-app
     container_name: laravel-app
     restart: unless-stopped
     working_dir: /var/www
     volumes:
       - ./:/var/www
+      - ./storage:/var/www/storage
     ports:
       - "8000:8000"
-    depends_on:
-      - db
+    env_file:
+      - .env
     environment: &app-env
       APP_ENV: local
       APP_DEBUG: "true"
@@ -25,22 +27,36 @@ services:
       DB_PASSWORD: omsdemo
       QUEUE_CONNECTION: database
       EXPORTS_DISK: local
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
   queue:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        COMPOSER_DEV: "true"
     image: laravel-app
     container_name: laravel-queue
     restart: unless-stopped
     working_dir: /var/www
     volumes:
       - ./:/var/www
-    depends_on:
-      - db
-      - app
-    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+      - ./storage:/var/www/storage
+    env_file:
+      - .env
     environment: *app-env
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+    depends_on:
+      app:
+        condition: service_healthy
 
   db:
     image: postgres:15
@@ -54,6 +70,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d saas-backend"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:
