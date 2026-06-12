@@ -46,6 +46,8 @@ App runs at [http://localhost:8000](http://localhost:8000). PostgreSQL data pers
 
 ## Testing
 
+Copy `phpunit.xml.dist` to `phpunit.xml` for local overrides (gitignored). DB credentials come from your `.env` file.
+
 ```bash
 composer test
 ```

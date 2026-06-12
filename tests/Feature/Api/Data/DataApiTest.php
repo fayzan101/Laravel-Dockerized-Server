@@ -44,8 +44,9 @@ class DataApiTest extends TestCase
     {
         ['admin' => $admin] = $this->createTenantWithAdmin();
 
-        $response = $this->actingAsApi($admin)->postJson('/api/data/migrate')->assertStatus(202);
+        $response = $this->actingAsApi($admin)->postJson('/api/data/migrate');
 
+        $response->assertOk();
         $this->assertEquals('completed', $response->json('migration.status'));
         $this->assertNotEmpty($response->json('migration.steps'));
     }
