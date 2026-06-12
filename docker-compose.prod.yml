@@ -2,7 +2,8 @@
 #
 # On server (~/faizan):
 #   mkdir -p ~/faizan && cd ~/faizan
-#   cp .env.production.example .env   # fill in values
+#   cp .env.production.example .env && nano .env
+#   chmod -R 775 storage bootstrap/cache
 #   docker compose -f docker-compose.prod.yml up -d --build
 #   docker compose -f docker-compose.prod.yml exec app php artisan key:generate
 #   docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
@@ -43,6 +44,11 @@ services:
       start_period: 60s
 
   queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COMPOSER_DEV: "false"
     image: laravel-app:prod
     container_name: laravel-queue
     restart: unless-stopped
@@ -63,6 +69,11 @@ services:
         condition: service_healthy
 
   scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COMPOSER_DEV: "false"
     image: laravel-app:prod
     container_name: laravel-scheduler
     restart: unless-stopped
