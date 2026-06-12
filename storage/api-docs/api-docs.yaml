@@ -1,0 +1,1700 @@
+openapi: 3.0.0
+info:
+  title: Multi Tenant SaaS API
+  version: 1.2.0
+  description: REST API for a multi-tenant SaaS platform.
+servers:
+  - url: /api
+    description: API base path
+
+tags:
+  - name: Observability
+    description: Health checks and platform metrics.
+  - name: Auth
+    description: Registration, login, tokens, and password reset.
+  - name: Profile
+    description: Authenticated user profile and password.
+  - name: Tenant
+    description: Current tenant settings and members.
+  - name: Users
+    description: Tenant-scoped user CRUD.
+  - name: Admin
+    description: Super-admin tenant management and impersonation.
+  - name: IAM
+    description: Roles, permissions, and user assignments.
+  - name: Features
+    description: Feature catalog and tenant overrides.
+  - name: Usage
+    description: Usage reporting and history.
+  - name: Audit & Compliance
+    description: Audit logs, activity logs, and GDPR.
+  - name: Data
+    description: Tenant export, import, and migration.
+  - name: Integrations
+    description: Webhook integrations CRUD and testing.
+
+paths:
+  /health:
+    get:
+      tags: [Observability]
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /status:
+    get:
+      tags: [Observability]
+      summary: System status with database connectivity
+      responses:
+        '200':
+          description: System status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+                  database: { type: string, enum: [ok, error, unknown] }
+
+  /metrics:
+    get:
+      tags: [Observability]
+      summary: Platform-wide tenant and user counts
+      responses:
+        '200':
+          description: Platform metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenants:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      active: { type: integer }
+                      inactive: { type: integer }
+                      suspended: { type: integer }
+                  users:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                  timestamp: { type: string, format: date-time }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register user and new tenant
+      description: Rate limited — 10 requests/min per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, password_confirmation, tenant_name, tenant_slug]
+              properties:
+                name: { type: string, example: John Doe }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8 }
+                password_confirmation: { type: string, format: password }
+                tenant_name: { type: string, example: Acme Corp }
+                tenant_slug: { type: string, example: acme-corp }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      description: Rate limited — 10 requests/min per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                tenant_slug: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '403':
+          description: Tenant inactive or suspended
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset link
+      description: Rate limited — 10 requests/min per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Reset link sent (if account exists)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password with email token
+      description: Rate limited — 10 requests/min per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, email, password, password_confirmation]
+              properties:
+                token: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                password_confirmation: { type: string }
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/sso:
+    post:
+      tags: [Auth]
+      summary: Validate existing bearer token (SSO passthrough)
+      description: |
+        Re-validates an existing Sanctum token from the Authorization header.
+        Not a full OAuth/OIDC SSO provider. Rate limited — 10 requests/min per IP.
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Token valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Invalid or missing token
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke current access token
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate access token
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: New token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  access_token: { type: string }
+                  token_type: { type: string, example: Bearer }
+
+  /user/profile:
+    get:
+      tags: [Profile]
+      summary: Get authenticated user profile
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    put:
+      tags: [Profile]
+      summary: Update authenticated user profile
+      security:
+        - sanctum: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 255 }
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  user:
+                    $ref: '#/components/schemas/User'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /user/password:
+    put:
+      tags: [Profile]
+      summary: Change authenticated user password
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, password, password_confirmation]
+              properties:
+                current_password: { type: string, format: password }
+                password: { type: string, format: password, minLength: 8 }
+                password_confirmation: { type: string, format: password }
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /tenant/current:
+    get:
+      tags: [Tenant]
+      summary: Get current tenant
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Current tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+
+  /tenant/update:
+    put:
+      tags: [Tenant]
+      summary: Update current tenant (admin only)
+      security:
+        - sanctum: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                description: { type: string, nullable: true }
+                settings: { type: object, nullable: true }
+      responses:
+        '200':
+          description: Tenant updated
+        '403':
+          description: Forbidden
+
+  /tenant/invite-user:
+    post:
+      tags: [Tenant]
+      summary: Invite user to tenant (admin only)
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [admin, member] }
+      responses:
+        '201':
+          description: User invited
+
+  /tenant/users:
+    get:
+      tags: [Tenant]
+      summary: List users in current tenant (paginated)
+      description: Rate limited — 120 requests/min per user.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUsers'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /tenant/remove-user:
+    post:
+      tags: [Tenant]
+      summary: Remove user from tenant (admin only)
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: integer }
+      responses:
+        '200':
+          description: User removed
+
+  /tenants/{tenantId}/users:
+    get:
+      tags: [Users]
+      summary: List users in tenant by ID (admin only, paginated)
+      description: Rate limited — 120 requests/min per user.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUsers'
+        '403':
+          description: Forbidden
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      tags: [Users]
+      summary: Create user in tenant (admin only)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, role, password, password_confirmation]
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                role: { type: string, enum: [admin, member] }
+                password: { type: string, minLength: 8 }
+                password_confirmation: { type: string }
+      responses:
+        '201':
+          description: User created
+
+  /users/{userId}:
+    put:
+      tags: [Users]
+      summary: Update user (admin only)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                email: { type: string, format: email }
+                role: { type: string, enum: [admin, member] }
+                password: { type: string, minLength: 8 }
+                password_confirmation: { type: string }
+      responses:
+        '200':
+          description: User updated
+    delete:
+      tags: [Users]
+      summary: Delete user (admin only)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User deleted
+
+  /admin/tenants:
+    get:
+      tags: [Admin]
+      summary: List all tenants (super-admin, paginated)
+      description: Paginated tenant list. Rate limited — 120/min per user.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated tenants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTenants'
+        '403':
+          description: Requires super-admin role
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /admin/tenants/{tenantId}:
+    get:
+      tags: [Admin]
+      summary: Get tenant detail (super-admin)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Tenant record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '403':
+          description: Requires super-admin role
+        '404':
+          description: Tenant not found
+
+  /admin/tenants/{tenantId}/usage:
+    get:
+      tags: [Admin]
+      summary: Get tenant usage metrics (super-admin)
+      description: Live tenant usage counts (users, integrations, usage records, logs).
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Usage metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant_id: { type: integer }
+                  tenant:
+                    $ref: '#/components/schemas/Tenant'
+                  usage:
+                    type: object
+                    properties:
+                      users: { type: integer }
+                      integrations: { type: integer }
+                      usage_records: { type: integer }
+                      usage_by_feature: { type: object, additionalProperties: { type: integer } }
+                      feature_overrides: { type: integer }
+                      audit_logs: { type: integer }
+                      activity_logs: { type: integer }
+                      gdpr_requests: { type: integer }
+        '403':
+          description: Requires super-admin role
+        '404':
+          description: Tenant not found
+
+  /admin/tenants/{tenantId}/suspend:
+    post:
+      tags: [Admin]
+      summary: Suspend tenant (super-admin)
+      description: Sets tenant `status` to `suspended`. Suspended tenant users are blocked by middleware.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Tenant suspended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '403':
+          description: Requires super-admin role
+
+  /admin/tenants/{tenantId}/reactivate:
+    post:
+      tags: [Admin]
+      summary: Reactivate suspended tenant (super-admin)
+      description: Sets tenant `status` back to `active`.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Tenant reactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '403':
+          description: Requires super-admin role
+
+  /admin/impersonate-user:
+    post:
+      tags: [Admin]
+      summary: Impersonate user (super-admin)
+      description: Issues a new Sanctum token for the target user. Audit log entry is created.
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id: { type: integer }
+      responses:
+        '200':
+          description: Impersonation token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  access_token: { type: string }
+                  token_type: { type: string, example: Bearer }
+                  user:
+                    $ref: '#/components/schemas/User'
+        '403':
+          description: Requires super-admin role
+
+  /roles:
+    get:
+      tags: [IAM]
+      summary: List system and custom roles (paginated custom roles)
+      description: System roles plus paginated tenant-custom roles. Rate limited.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: System and custom roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  system_roles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SystemRole'
+                  custom_roles:
+                    $ref: '#/components/schemas/PaginatedRoles'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      tags: [IAM]
+      summary: Create custom role (admin)
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string, nullable: true }
+                permission_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        '201':
+          description: Role created
+        '403':
+          description: Admin only
+
+  /permissions:
+    get:
+      tags: [IAM]
+      summary: List tenant permissions (paginated)
+      description: Tenant-scoped custom permissions. Rate limited.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated permissions
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      tags: [IAM]
+      summary: Create permission (admin)
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Permission created
+        '403':
+          description: Admin only
+
+  /roles/{roleId}/permissions:
+    put:
+      tags: [IAM]
+      summary: Sync permissions on a custom role (admin)
+      security:
+        - sanctum: []
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permission_ids]
+              properties:
+                permission_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        '200':
+          description: Role permissions updated
+        '403':
+          description: Admin only
+        '404':
+          description: Role not found
+
+  /users/{userId}/roles:
+    put:
+      tags: [IAM]
+      summary: Assign custom roles to user (admin)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_ids]
+              properties:
+                role_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        '200':
+          description: User roles updated
+        '403':
+          description: Admin only, same tenant
+        '404':
+          description: User not found
+
+  /users/{userId}/permissions:
+    get:
+      tags: [IAM]
+      summary: Get effective permissions for a user
+      description: Effective permissions from system role config and custom DB roles.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User role and permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPermissions'
+        '403':
+          description: Admin only, same tenant
+        '404':
+          description: User not found
+
+  /audit-logs:
+    get:
+      tags: ['Audit & Compliance']
+      summary: List audit logs (paginated)
+      description: Paginated audit trail. Optional filters — action, user_id, from, to.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: user_id
+          in: query
+          schema: { type: integer }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Paginated audit logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogs'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /tenants/{tenantId}/audit-logs:
+    get:
+      tags: ['Audit & Compliance']
+      summary: List audit logs for a tenant (paginated)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated tenant audit logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogs'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /activity-logs:
+    get:
+      tags: ['Audit & Compliance']
+      summary: List activity logs for current tenant (paginated)
+      description: Business activity events (tenant updates, user invites, etc.). Rate limited.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated activity logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedActivityLogs'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /compliance/gdpr/export:
+    post:
+      tags: ['Audit & Compliance']
+      summary: Export user data (GDPR)
+      description: Exports user, tenant, and activity logs. Creates a gdpr_requests record.
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Export completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: GDPR export completed }
+                  status: { type: string, enum: [completed] }
+                  request_id: { type: integer }
+                  download_path: { type: string, description: Internal storage path }
+
+  /compliance/gdpr/delete:
+    post:
+      tags: ['Audit & Compliance']
+      summary: Delete user account (GDPR)
+      description: Deletes Sanctum tokens and the user account. Irreversible.
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Deletion completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: GDPR delete completed }
+                  status: { type: string, enum: [completed] }
+                  request_id: { type: integer }
+
+  /compliance/gdpr/requests:
+    get:
+      tags: ['Audit & Compliance']
+      summary: List GDPR requests for current tenant (paginated)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated GDPR requests
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /compliance/gdpr/requests/{requestId}/download:
+    get:
+      tags: ['Audit & Compliance']
+      summary: Download GDPR export payload
+      security:
+        - sanctum: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: GDPR export JSON
+        '404':
+          description: Request or export file not found
+
+  /data/export:
+    get:
+      tags: [Data]
+      summary: Export current tenant data
+      description: |
+        Returns tenant record and all users as JSON. Pass `?download=1` for a file download.
+        Admin permission required.
+      security:
+        - sanctum: []
+      parameters:
+        - name: download
+          in: query
+          schema: { type: integer, enum: [0, 1] }
+          description: Set to `1` to download as attachment
+      responses:
+        '200':
+          description: Tenant export payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant:
+                    $ref: '#/components/schemas/Tenant'
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+
+  /data/import:
+    post:
+      tags: [Data]
+      summary: Import users into current tenant
+      description: Upserts users from `data.users[]` array. Random password assigned to new users.
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: object
+                  properties:
+                    users:
+                      type: array
+                      items:
+                        type: object
+                        required: [name, email]
+                        properties:
+                          name: { type: string }
+                          email: { type: string, format: email }
+                          role: { type: string, enum: [admin, member] }
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  imported_users: { type: integer }
+
+  /data/migrate:
+    post:
+      tags: [Data]
+      summary: Run tenant data migration
+      description: Validates tenant data, snapshots export, and records migration steps.
+      security:
+        - sanctum: []
+      responses:
+        '200':
+          description: Migration completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  migration:
+                    type: object
+                    properties:
+                      id: { type: integer }
+                      status: { type: string, enum: [completed, failed] }
+                      steps: { type: array, items: { type: object } }
+
+  /data/migrations:
+    get:
+      tags: [Data]
+      summary: List data migrations for current tenant (paginated)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated migrations
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /data/migrations/{migrationId}:
+    get:
+      tags: [Data]
+      summary: Get migration status and steps
+      security:
+        - sanctum: []
+      parameters:
+        - name: migrationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Migration record
+        '404':
+          description: Migration not found
+
+  /tenants/{tenantId}/data:
+    delete:
+      tags: [Data]
+      summary: Delete all tenant users and integrations
+      description: Destructive. Removes users and integrations for the tenant. Tenant record remains.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Data deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /tenants/{tenantId}/integrations:
+    post:
+      tags: [Integrations]
+      summary: Create integration for tenant
+      description: Creates a webhook integration with name, type, config, and is_active.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string, example: Slack Integration }
+                type: { type: string, example: webhook }
+                config: { type: object, nullable: true }
+                is_active: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Integration created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integration:
+                    $ref: '#/components/schemas/Integration'
+
+  /integrations:
+    get:
+      tags: [Integrations]
+      summary: List integrations for current tenant (paginated)
+      description: Tenant-scoped paginated list. Rate limited.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated integrations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIntegrations'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /integrations/{integrationId}:
+    get:
+      tags: [Integrations]
+      summary: Get integration by ID
+      security:
+        - sanctum: []
+      parameters:
+        - name: integrationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Integration record
+        '404':
+          description: Not found
+    put:
+      tags: [Integrations]
+      summary: Update integration
+      security:
+        - sanctum: []
+      parameters:
+        - name: integrationId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                type: { type: string }
+                config: { type: object }
+                is_active: { type: boolean }
+      responses:
+        '200':
+          description: Integration updated
+        '404':
+          description: Not found
+    delete:
+      tags: [Integrations]
+      summary: Delete integration
+      security:
+        - sanctum: []
+      parameters:
+        - name: integrationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Integration deleted
+        '404':
+          description: Not found
+
+  /integrations/{integrationId}/test:
+    post:
+      tags: [Integrations]
+      summary: Test webhook integration connectivity
+      description: Sends a test POST to the webhook URL in `config.url`.
+      security:
+        - sanctum: []
+      parameters:
+        - name: integrationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Test result (success or HTTP error details)
+        '422':
+          description: Missing webhook URL
+        '404':
+          description: Not found
+
+  /features:
+    get:
+      tags: [Features]
+      summary: List all features (paginated)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated features
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFeatures'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /tenants/{tenantId}/features:
+    get:
+      tags: [Features]
+      summary: List tenant features with overrides (paginated)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+      responses:
+        '200':
+          description: Paginated tenant features
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTenantFeatures'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /tenants/{tenantId}/features/override:
+    post:
+      tags: [Features]
+      summary: Override feature for tenant (admin only)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feature_key]
+              properties:
+                feature_key: { type: string }
+                enabled: { type: boolean, nullable: true }
+                limit: { type: integer, nullable: true, minimum: 0 }
+      responses:
+        '200':
+          description: Override saved
+
+  /usage:
+    get:
+      tags: [Usage]
+      summary: Get usage summary with paginated records
+      description: |
+        Returns aggregate `summary` by feature_key plus paginated `records`.
+        Filter with `feature_key`, `from`, `to` query params.
+        Rate limited — 120 requests/min per user.
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/perPage'
+        - name: feature_key
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /usage/report:
+    post:
+      tags: [Usage]
+      summary: Report usage event (admin only)
+      security:
+        - sanctum: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feature_key, amount]
+              properties:
+                feature_key: { type: string }
+                amount: { type: integer, minimum: 1 }
+                metadata: { type: object, nullable: true }
+                recorded_at: { type: string, format: date-time, nullable: true }
+      responses:
+        '201':
+          description: Usage recorded
+
+  /tenants/{tenantId}/metrics:
+    get:
+      tags: [Observability]
+      summary: Tenant metrics (admin only)
+      security:
+        - sanctum: []
+      parameters:
+        - $ref: '#/components/parameters/tenantId'
+      responses:
+        '200':
+          description: Tenant metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant: { type: object }
+                  users:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      admins: { type: integer }
+                      members: { type: integer }
+                  timestamp: { type: string, format: date-time }
+
+components:
+  securitySchemes:
+    sanctum:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum
+      description: Obtain via POST /auth/login or POST /auth/register.
+
+  parameters:
+    tenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: integer
+        example: 1
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: integer
+        example: 1
+    page:
+      name: page
+      in: query
+      description: Page number (default 1)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    perPage:
+      name: per_page
+      in: query
+      description: Items per page (default 15, max 100)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 15
+
+  responses:
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    RateLimited:
+      description: Too many requests — rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds until retry is allowed
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Too Many Attempts.
+
+  schemas:
+    PaginationMeta:
+      type: object
+      properties:
+        current_page: { type: integer, example: 1 }
+        per_page: { type: integer, example: 15 }
+        total: { type: integer, example: 42 }
+        last_page: { type: integer, example: 3 }
+        from: { type: integer, nullable: true }
+        to: { type: integer, nullable: true }
+        path: { type: string }
+        first_page_url: { type: string }
+        last_page_url: { type: string }
+        next_page_url: { type: string, nullable: true }
+        prev_page_url: { type: string, nullable: true }
+
+    PaginatedUsers:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/User'
+
+    PaginatedTenants:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Tenant'
+
+    PaginatedIntegrations:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Integration'
+
+    PaginatedFeatures:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Feature'
+
+    PaginatedTenantFeatures:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/TenantFeature'
+
+    PaginatedAuditLogs:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuditLog'
+
+    PaginatedActivityLogs:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ActivityLog'
+
+    MessageResponse:
+      type: object
+      properties:
+        message: { type: string, example: Operation successful }
+
+    ErrorResponse:
+      type: object
+      properties:
+        message: { type: string, example: Unauthorized }
+
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    AuthTokenResponse:
+      type: object
+      properties:
+        message: { type: string }
+        access_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        user:
+          $ref: '#/components/schemas/User'
+        tenant:
+          $ref: '#/components/schemas/Tenant'
+
+    Tenant:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [active, inactive, suspended] }
+        owner_id: { type: integer, nullable: true }
+        settings: { type: object, nullable: true }
+        activated_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        tenant_id: { type: integer, nullable: true }
+        role: { type: string, enum: [admin, member, super-admin] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SystemRole:
+      type: object
+      description: Fixed platform role (not DB-managed custom role)
+      properties:
+        type: { type: string, example: system }
+        name: { type: string, enum: [admin, member] }
+        description: { type: string }
+
+    Role:
+      type: object
+      properties:
+        id: { type: integer }
+        tenant_id: { type: integer }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        permissions_count: { type: integer }
+        users_count: { type: integer }
+
+    PaginatedRoles:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Role'
+
+    UserPermissions:
+      type: object
+      properties:
+        user_id: { type: integer }
+        system_role: { type: string, enum: [admin, member, super-admin] }
+        custom_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        permissions:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string, example: users.manage }
+
+    Feature:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        default_enabled: { type: boolean }
+        default_limit: { type: integer, nullable: true }
+
+    TenantFeature:
+      type: object
+      properties:
+        key: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        enabled: { type: boolean }
+        limit: { type: integer, nullable: true }
+
+    Integration:
+      type: object
+      properties:
+        id: { type: integer }
+        tenant_id: { type: integer }
+        name: { type: string }
+        type: { type: string, example: webhook }
+        config: { type: object, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AuditLog:
+      type: object
+      properties:
+        id: { type: integer }
+        tenant_id: { type: integer, nullable: true }
+        user_id: { type: integer, nullable: true }
+        action: { type: string, example: login }
+        resource_type: { type: string, nullable: true }
+        resource_id: { type: integer, nullable: true }
+        metadata: { type: object, nullable: true }
+        ip_address: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    ActivityLog:
+      type: object
+      properties:
+        id: { type: integer }
+        tenant_id: { type: integer, nullable: true }
+        user_id: { type: integer, nullable: true }
+        activity: { type: string, example: tenant.updated }
+        subject_type: { type: string, nullable: true }
+        subject_id: { type: integer, nullable: true }
+        metadata: { type: object, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    UsageRecord:
+      type: object
+      properties:
+        id: { type: integer }
+        tenant_id: { type: integer }
+        feature_key: { type: string }
+        amount: { type: integer }
+        metadata: { type: object, nullable: true }
+        recorded_at: { type: string, format: date-time }
+
+    UsageResponse:
+      type: object
+      properties:
+        tenant_id: { type: integer }
+        summary:
+          type: object
+          additionalProperties: { type: integer }
+          description: Total amount grouped by feature_key
+        records_count: { type: integer }
+        records:
+          allOf:
+            - $ref: '#/components/schemas/PaginationMeta'
+            - type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/UsageRecord'

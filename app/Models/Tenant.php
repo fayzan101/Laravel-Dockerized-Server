@@ -21,6 +21,11 @@ class Tenant extends Model
         'activated_at',
     ];
 
+    public function integrations()
+    {
+        return $this->hasMany(Integration::class);
+    }
+
     protected $casts = [
         'settings' => 'json',
         'activated_at' => 'datetime',

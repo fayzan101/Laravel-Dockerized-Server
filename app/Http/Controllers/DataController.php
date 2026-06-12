@@ -2,74 +2,130 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use App\Enums\UserRole;
+use App\Http\Requests\Data\ImportDataRequest;
+use App\Jobs\RunDataMigrationJob;
+use App\Models\DataMigration;
 use App\Models\Tenant;
+use App\Models\User;
+use App\Services\AuditLogger;
+use App\Services\DataMigrationService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DataController extends Controller
 {
-    // GET /data/export
+    public function __construct(
+        private AuditLogger $auditLogger,
+        private DataMigrationService $migrationService
+    ) {
+    }
+
     public function export(Request $request)
     {
-        // Example: Export all tenant data as JSON (customize as needed)
+        $this->authorize('data.export');
+
         $user = $request->user();
-        if (!$user || !$user->tenant_id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-        $tenant = Tenant::find($user->tenant_id);
-        if (!$tenant) {
-            return response()->json(['message' => 'Tenant not found'], 404);
-        }
-        // Collect data (customize for your domain)
-        $data = [
+        $tenant = Tenant::with('users')->findOrFail($user->tenant_id);
+
+        $payload = [
+            'exported_at' => now()->toIso8601String(),
             'tenant' => $tenant,
             'users' => $tenant->users,
-            // Add more related data as needed
         ];
-        return response()->json($data);
-    }
 
-    // POST /data/import
-    public function import(Request $request)
-    {
-        // Example: Accept JSON and import data (customize as needed)
-        $user = $request->user();
-        if (!$user || !$user->tenant_id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        $this->auditLogger->activity('data.exported', $user, $tenant);
+
+        if ($request->boolean('download')) {
+            $filename = 'tenant-' . $tenant->id . '-export-' . now()->timestamp . '.json';
+
+            return response()->streamDownload(function () use ($payload) {
+                echo json_encode($payload, JSON_PRETTY_PRINT);
+            }, $filename, ['Content-Type' => 'application/json']);
         }
-        $data = $request->all();
-        // Implement your import logic here
-        // ...
-        return response()->json(['message' => 'Import successful']);
+
+        return response()->json($payload);
     }
 
-    // POST /data/migrate
+    public function import(ImportDataRequest $request)
+    {
+        $this->authorize('data.import');
+
+        $user = $request->user();
+        $imported = 0;
+
+        DB::transaction(function () use ($request, $user, &$imported) {
+            foreach ($request->input('data.users', []) as $userData) {
+                User::updateOrCreate(
+                    [
+                        'email' => $userData['email'],
+                        'tenant_id' => $user->tenant_id,
+                    ],
+                    [
+                        'name' => $userData['name'],
+                        'role' => $userData['role'] ?? UserRole::Member->value,
+                        'password' => Hash::make(Str::random(32)),
+                    ]
+                );
+                $imported++;
+            }
+        });
+
+        $this->auditLogger->activity('data.imported', $user, null, ['imported_users' => $imported]);
+
+        return response()->json([
+            'message' => 'Import successful',
+            'imported_users' => $imported,
+        ]);
+    }
+
     public function migrate(Request $request)
     {
-        // Example: Trigger a migration or data transformation (customize as needed)
-        $user = $request->user();
-        if (!$user || !$user->tenant_id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-        // Implement migration logic here
-        // ...
-        return response()->json(['message' => 'Migration started']);
+        $this->authorize('data.migrate');
+
+        $migration = $this->migrationService->queue($request->user());
+
+        RunDataMigrationJob::dispatch($migration->id);
+
+        return response()->json([
+            'message' => 'Migration queued',
+            'migration' => $migration,
+        ], 202);
     }
 
-    // DELETE /tenants/{tenantId}/data
-    public function deleteTenantData(Request $request, $tenantId)
+    public function migrationStatus(Request $request, int $migrationId)
     {
-        $user = $request->user();
-        if (!$user || $user->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-        $tenant = Tenant::find($tenantId);
-        if (!$tenant) {
-            return response()->json(['message' => 'Tenant not found'], 404);
-        }
-        // Example: Delete all users for the tenant (customize as needed)
+        $this->authorize('data.migrate');
+
+        $migration = DataMigration::where('tenant_id', $request->user()->tenant_id)
+            ->findOrFail($migrationId);
+
+        return response()->json(['migration' => $migration]);
+    }
+
+    public function listMigrations(Request $request)
+    {
+        $this->authorize('data.migrate');
+
+        return response()->json(
+            DataMigration::query()->latest()->paginate($this->perPage($request))
+        );
+    }
+
+    public function deleteTenantData(Request $request, int $tenantId)
+    {
+        $tenant = Tenant::findOrFail($tenantId);
+        $this->authorize('deleteData', $tenant);
+
+        $this->auditLogger->audit('tenant.data_deleted', $request->user(), $tenant->id, Tenant::class, $tenant->id);
+
+        $tenant->integrations()->delete();
         $tenant->users()->delete();
-        // Add more deletion logic as needed
+
         return response()->json(['message' => 'Tenant data deleted']);
     }
 }

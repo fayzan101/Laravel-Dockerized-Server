@@ -10,12 +10,16 @@ class EnsureTenantIsActive
 {
         public function handle(Request $request, Closure $next): Response
     {
-        if ($request->user() && $request->user()->tenant) {
-            if (!$request->user()->tenant->isActive()) {
-                return response()->json([
-                    'message' => 'Tenant is not active.',
-                ], 403);
-            }
+        $user = $request->user();
+
+        if ($user && $user->isSuperAdmin()) {
+            return $next($request);
+        }
+
+        if ($user && $user->tenant && ! $user->tenant->isActive()) {
+            return response()->json([
+                'message' => 'Tenant is not active.',
+            ], 403);
         }
 
         return $next($request);

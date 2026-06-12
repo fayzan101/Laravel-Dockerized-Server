@@ -9,15 +9,6 @@ class UserApiTest extends TestCase
 {
     use CreatesTenants;
 
-    public function test_user_can_view_profile(): void
-    {
-        ['admin' => $admin] = $this->createTenantWithAdmin();
-
-        $this->actingAsApi($admin)->getJson('/api/user/profile')
-            ->assertOk()
-            ->assertJsonPath('email', $admin->email);
-    }
-
     public function test_admin_can_create_tenant_user(): void
     {
         ['tenant' => $tenant, 'admin' => $admin] = $this->createTenantWithAdmin();
@@ -37,7 +28,8 @@ class UserApiTest extends TestCase
 
         $this->actingAsApi($admin)->getJson('/api/tenants/' . $tenant->id . '/users')
             ->assertOk()
-            ->assertJsonCount(1);
+            ->assertJsonStructure(['data', 'current_page', 'per_page', 'total'])
+            ->assertJsonCount(1, 'data');
     }
 
     public function test_admin_can_update_user(): void

@@ -44,7 +44,7 @@ class TenantApiTest extends TestCase
 
         $this->actingAsApi($admin)->getJson('/api/tenant/users')
             ->assertOk()
-            ->assertJsonCount(2);
+            ->assertJsonCount(2, 'data');
     }
 
     public function test_admin_can_remove_user_from_tenant(): void

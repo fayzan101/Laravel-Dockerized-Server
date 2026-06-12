@@ -11,11 +11,20 @@ class DataApiTest extends TestCase
 
     public function test_admin_can_export_tenant_data(): void
     {
-        ['tenant' => $tenant, 'admin' => $admin] = $this->createTenantWithAdmin();
+        ['admin' => $admin] = $this->createTenantWithAdmin();
 
         $this->actingAsApi($admin)->getJson('/api/data/export')
             ->assertOk()
-            ->assertJsonStructure(['tenant', 'users']);
+            ->assertJsonStructure(['exported_at', 'tenant', 'users']);
+    }
+
+    public function test_admin_can_download_export(): void
+    {
+        ['admin' => $admin] = $this->createTenantWithAdmin();
+
+        $this->actingAsApi($admin)->getJson('/api/data/export?download=1')
+            ->assertOk()
+            ->assertHeader('content-disposition');
     }
 
     public function test_admin_can_import_tenant_data(): void
@@ -31,13 +40,24 @@ class DataApiTest extends TestCase
         ])->assertOk()->assertJsonPath('imported_users', 1);
     }
 
-    public function test_admin_can_start_migration(): void
+    public function test_admin_can_run_migration_with_steps(): void
     {
         ['admin' => $admin] = $this->createTenantWithAdmin();
 
-        $this->actingAsApi($admin)->postJson('/api/data/migrate')
+        $response = $this->actingAsApi($admin)->postJson('/api/data/migrate')->assertStatus(202);
+
+        $this->assertEquals('completed', $response->json('migration.status'));
+        $this->assertNotEmpty($response->json('migration.steps'));
+    }
+
+    public function test_admin_can_list_migrations(): void
+    {
+        ['admin' => $admin] = $this->createTenantWithAdmin();
+        $this->actingAsApi($admin)->postJson('/api/data/migrate');
+
+        $this->actingAsApi($admin)->getJson('/api/data/migrations')
             ->assertOk()
-            ->assertJsonPath('status', 'pending');
+            ->assertJsonStructure(['data', 'current_page']);
     }
 
     public function test_admin_can_delete_tenant_data(): void

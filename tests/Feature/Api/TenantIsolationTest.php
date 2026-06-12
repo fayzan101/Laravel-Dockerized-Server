@@ -39,7 +39,7 @@ class TenantIsolationTest extends TestCase
         Integration::create(['tenant_id' => $tenantB->id, 'name' => 'Only B', 'type' => 'webhook']);
 
         $names = collect(
-            $this->actingAsApi($adminA)->getJson('/api/integrations')->json('integrations')
+            $this->actingAsApi($adminA)->getJson('/api/integrations')->json('data')
         )->pluck('name');
 
         $this->assertTrue($names->contains('Only A'));

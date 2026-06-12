@@ -14,9 +14,20 @@ class AdminApiTest extends TestCase
         $this->createTenantWithAdmin();
         $superAdmin = $this->createSuperAdmin();
 
-        $this->actingAsApi($superAdmin)->getJson('/api/admin/tenants')
+        $response = $this->actingAsApi($superAdmin)->getJson('/api/admin/tenants');
+
+        $response->assertOk();
+        $this->assertGreaterThanOrEqual(1, count($response->json('data')));
+    }
+
+    public function test_super_admin_can_show_tenant(): void
+    {
+        ['tenant' => $tenant] = $this->createTenantWithAdmin();
+        $superAdmin = $this->createSuperAdmin();
+
+        $this->actingAsApi($superAdmin)->getJson('/api/admin/tenants/' . $tenant->id)
             ->assertOk()
-            ->assertJson(fn ($json) => $json->count() >= 1);
+            ->assertJsonPath('id', $tenant->id);
     }
 
     public function test_tenant_admin_cannot_list_all_tenants(): void
@@ -26,17 +37,30 @@ class AdminApiTest extends TestCase
         $this->actingAsApi($admin)->getJson('/api/admin/tenants')->assertForbidden();
     }
 
-    public function test_super_admin_can_view_tenant_usage(): void
+    public function test_super_admin_can_view_real_tenant_usage(): void
     {
         ['tenant' => $tenant] = $this->createTenantWithAdmin();
         $superAdmin = $this->createSuperAdmin();
 
         $this->actingAsApi($superAdmin)->getJson('/api/admin/tenants/' . $tenant->id . '/usage')
             ->assertOk()
-            ->assertJsonStructure(['tenant_id', 'usage']);
+            ->assertJsonStructure([
+                'tenant_id',
+                'tenant',
+                'usage' => [
+                    'users',
+                    'integrations',
+                    'usage_records',
+                    'usage_by_feature',
+                    'feature_overrides',
+                    'audit_logs',
+                    'activity_logs',
+                ],
+            ])
+            ->assertJsonPath('usage.users', 1);
     }
 
-    public function test_super_admin_can_suspend_tenant(): void
+    public function test_super_admin_can_suspend_and_reactivate_tenant(): void
     {
         ['tenant' => $tenant] = $this->createTenantWithAdmin();
         $superAdmin = $this->createSuperAdmin();
@@ -45,6 +69,11 @@ class AdminApiTest extends TestCase
             ->assertOk();
 
         $this->assertDatabaseHas('tenants', ['id' => $tenant->id, 'status' => 'suspended']);
+
+        $this->actingAsApi($superAdmin)->postJson('/api/admin/tenants/' . $tenant->id . '/reactivate')
+            ->assertOk();
+
+        $this->assertDatabaseHas('tenants', ['id' => $tenant->id, 'status' => 'active']);
     }
 
     public function test_super_admin_impersonation_returns_token(): void
@@ -55,5 +84,36 @@ class AdminApiTest extends TestCase
         $this->actingAsApi($superAdmin)->postJson('/api/admin/impersonate-user', [
             'user_id' => $admin->id,
         ])->assertOk()->assertJsonStructure(['access_token', 'user']);
+    }
+
+    public function test_super_admin_can_create_and_delete_tenant(): void
+    {
+        $superAdmin = $this->createSuperAdmin();
+
+        $response = $this->actingAsApi($superAdmin)->postJson('/api/admin/tenants', [
+            'name' => 'New Co',
+            'slug' => 'new-co-' . uniqid(),
+            'owner_name' => 'Owner',
+            'owner_email' => 'owner-' . uniqid() . '@example.com',
+            'owner_password' => 'password123',
+            'owner_password_confirmation' => 'password123',
+        ])->assertCreated();
+
+        $tenantId = $response->json('tenant.id');
+
+        $this->actingAsApi($superAdmin)->deleteJson('/api/admin/tenants/' . $tenantId)
+            ->assertOk();
+
+        $this->assertSoftDeleted('tenants', ['id' => $tenantId]);
+    }
+
+    public function test_super_admin_can_view_dashboard(): void
+    {
+        $this->createTenantWithAdmin();
+        $superAdmin = $this->createSuperAdmin();
+
+        $this->actingAsApi($superAdmin)->getJson('/api/admin/dashboard')
+            ->assertOk()
+            ->assertJsonStructure(['platform', 'recent_audit_logs', 'tenants_by_status']);
     }
 }
