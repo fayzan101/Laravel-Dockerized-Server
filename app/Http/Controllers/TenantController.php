@@ -11,14 +11,17 @@ use App\Http\Requests\Tenant\UpdateUserRequest;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\PlatformLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class TenantController extends Controller
 {
-    public function __construct(private AuditLogger $auditLogger)
-    {
+    public function __construct(
+        private AuditLogger $auditLogger,
+        private PlatformLimitService $limits
+    ) {
     }
 
     public function current(Request $request)
@@ -64,6 +67,8 @@ class TenantController extends Controller
             return response()->json(['message' => 'User is already in this tenant'], 409);
         }
 
+        $this->limits->assertCanAddUser($owner->tenant_id);
+
         $newUser = User::create([
             'name' => explode('@', $request->email)[0],
             'email' => $request->email,
@@ -99,6 +104,8 @@ class TenantController extends Controller
     {
         $tenant = Tenant::findOrFail($tenantId);
         $this->authorize('manageUsers', $tenant);
+
+        $this->limits->assertCanAddUser($tenantId);
 
         $newUser = User::create([
             'name' => $request->name,

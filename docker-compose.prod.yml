@@ -1,0 +1,81 @@
+# Production: Hetzner VPS + Neon PostgreSQL (no local db).
+#
+# On server (~/faizan):
+#   mkdir -p ~/faizan && cd ~/faizan
+#   cp .env.production.example .env   # fill in values
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml exec app php artisan key:generate
+#   docker compose -f docker-compose.prod.yml exec app php artisan migrate --force
+#   docker compose -f docker-compose.prod.yml exec app php artisan config:cache
+
+name: saas-api-prod
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COMPOSER_DEV: "false"
+    image: laravel-app:prod
+    container_name: laravel-app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./storage:/var/www/storage
+      - ./bootstrap/cache:/var/www/bootstrap/cache
+    ports:
+      # IP-only (no domain): use "8000:8000" and open port 8000 in Hetzner firewall
+      # With Caddy + domain: use "127.0.0.1:8000:8000" instead
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      QUEUE_CONNECTION: database
+      EXPORTS_DISK: local
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  queue:
+    image: laravel-app:prod
+    container_name: laravel-queue
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./storage:/var/www/storage
+      - ./bootstrap/cache:/var/www/bootstrap/cache
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      QUEUE_CONNECTION: database
+      EXPORTS_DISK: local
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+    depends_on:
+      app:
+        condition: service_healthy
+
+  scheduler:
+    image: laravel-app:prod
+    container_name: laravel-scheduler
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./storage:/var/www/storage
+      - ./bootstrap/cache:/var/www/bootstrap/cache
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+    command: php artisan schedule:work
+    depends_on:
+      app:
+        condition: service_healthy

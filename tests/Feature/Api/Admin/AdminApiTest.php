@@ -116,4 +116,22 @@ class AdminApiTest extends TestCase
             ->assertOk()
             ->assertJsonStructure(['platform', 'recent_audit_logs', 'tenants_by_status']);
     }
+
+    public function test_super_admin_can_get_and_update_platform_settings(): void
+    {
+        $this->seedPlatformSettings();
+        $superAdmin = $this->createSuperAdmin();
+
+        $this->actingAsApi($superAdmin)->getJson('/api/admin/settings')
+            ->assertOk()
+            ->assertJsonStructure(['settings']);
+
+        $this->actingAsApi($superAdmin)->putJson('/api/admin/settings', [
+            'settings' => [
+                'maintenance_mode' => true,
+                'max_users_per_tenant' => 25,
+                'support_email' => 'ops@platform.local',
+            ],
+        ])->assertOk()->assertJsonPath('settings.maintenance_mode', true);
+    }
 }
