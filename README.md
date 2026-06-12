@@ -105,10 +105,10 @@ Add a **deploy SSH key** on the server (`~/.ssh/authorized_keys`) and configure 
 
 | Secret | Example |
 |--------|---------|
-| `DEPLOY_HOST` | `91.98.69.207` |
-| `DEPLOY_USER` | `root` |
+| `DEPLOY_HOST` | `` |
+| `DEPLOY_USER` | `` |
 | `DEPLOY_SSH_KEY` | private key (full PEM) |
-| `DEPLOY_PATH` | `/root/Faizan/MultiTenantSaas` |
+| `DEPLOY_PATH` | `` |
 | `DEPLOY_BRANCH` | `main` (optional) |
 
 Generate a key pair for GitHub Actions only:
